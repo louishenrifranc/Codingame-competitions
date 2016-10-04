@@ -46,7 +46,7 @@ using namespace GameParameters;
 class Timer {
 public:
 	std::chrono::high_resolution_clock::time_point start;
-	float limitCoefficient = 0.44;
+	float limitCoefficient = 0.80;
 	void reset() {
 		start = std::chrono::high_resolution_clock::now();
 	}
@@ -193,14 +193,14 @@ void update(State& state, const int& X, const int& Y) {
 
 //! Update the state for data
 void update(State& state, const int& ID, const int& X, const int& Y) {
-	assert(ID < state.m_ennemies.size());
+	// assert(ID < state.m_ennemies.size());
 	state.m_datas[ID] = Point(X, Y);
 }
 
 
 //! Update the state for ennemi
 void update(State& state, const int& ID, const int& X, const int& Y, const int& life) {
-	assert(ID < state.m_ennemies.size());
+	// assert(ID < state.m_ennemies.size());
 	Ennemy& ennemi = state.m_ennemies[ID];
 	ennemi.X = X;
 	ennemi.Y = Y;
@@ -216,7 +216,7 @@ void play(State& state, const Move& move) {
 	}
 	else {
 		Ennemy& ennemi = state.m_ennemies[move.m_target];
-		ennemi.m_life -= (125000.0) / state.m_player.distance(ennemi);
+		ennemi.m_life -= (125000.0) / pow(state.m_player.distance(ennemi), 1.2);
 		if (ennemi.m_life < 0) {
 			ennemi.m_life = 0;
 		}
@@ -243,7 +243,7 @@ void findNewTarget(const State& state, Ennemy& ennemi) {
 }
 
 
-void playRound(State& state, const Move& move) throw() {
+void playRound(State& state, const Move& move) {
 
 	//! 1. Move the ennemies
 	for (auto& ennemi : state.m_ennemies) {
@@ -256,34 +256,45 @@ void playRound(State& state, const Move& move) throw() {
 	}
 
 	//! 3. Check if player is dead
-	bool stillOnePlayerAlive = false;
 	for (const auto& ennemi : state.m_ennemies) {
 		if (ennemi.m_life > 0) {
-			stillOnePlayerAlive = true;
 			if (ennemi.distance2(state.m_player) < ENNEMY_KILL_RANGE2) {
 				throw playerDeadException();
 			}
 		}
 	}
 
-	//! 4. Check if I won the game
+	//! 4. Shoot the ennemi
+	if (move.m_move == MOVES::SHOOT) {
+		play(state, move);
+	}
+
+	//! 5. Check if I won the game
+	bool stillOnePlayerAlive = false;
+
+
+	//! 6. Check if data has been catched
+	for (auto& ennemi : state.m_ennemies) {
+		if (ennemi.m_life > 0) {
+			stillOnePlayerAlive = true;
+			if (ennemi.distance2(state.m_datas[ennemi.m_dataTarget]) < ENNEMY_CATCH_RANGE2) {
+				state.m_datas[ennemi.m_dataTarget].catched = true;
+				findNewTarget(state, ennemi);
+			}
+		}
+	}
+
 	if (stillOnePlayerAlive == false) {
 		throw wonGameException();
 	}
 
-	//! 5. Check if data has been catched
-	for (auto& ennemi : state.m_ennemies) {
-		if (ennemi.distance2(state.m_datas[ennemi.m_dataTarget]) < ENNEMY_CATCH_RANGE2) {
-			state.m_datas[ennemi.m_dataTarget].catched = true;
-			findNewTarget(state, ennemi);
-		}
-	}
+	//! 7. Update the turn number
 	++state.m_turnNumber;
 }
 
 
 //! Correct function verified
-void playRound(State& state, float& thetaDirection, vector<Move>& moves) throw() {
+void playRound(State& state, float& thetaDirection, vector<Move>& moves) {
 	thetaDirection *= 3.14159 / 180;
 	int doubleDistance = rand() & 1;
 	int distance = PLAYER_MOVE_MAX_RANGE / (doubleDistance + 1);
@@ -296,8 +307,15 @@ void playRound(State& state, float& thetaDirection, vector<Move>& moves) throw()
 
 	// Add the move to the vector of moves
 	moves.emplace_back(nextMove);
-
-	playRound(state, nextMove);
+	try {
+		playRound(state, nextMove);
+	}
+	catch (playerDeadException e) {
+		throw playerDeadException();
+	}
+	catch (wonGameException e1) {
+		throw wonGameException();
+	}
 }
 
 
@@ -309,22 +327,34 @@ bool movingPlayerRandomly(State& state, vector<Move>& moves) {
 		try {
 			playRound(state, randAngle, moves);
 		}
-		catch (exception e) {
+		catch (playerDeadException e) {
 			return false;
+		}
+		catch (wonGameException e1) {
+			throw;
 		}
 	}
 	return true;
 }
 
+
+int distance2AfterMovingEnnemy(const State& state, const int& IdPlayer) {
+	Point ennemyAfterMoving = state.m_ennemies[IdPlayer];
+
+	ennemyAfterMoving.moveWithinRange(state.m_datas[state.m_ennemies[IdPlayer].m_dataTarget], ENNEMY_MOVE_MAX_RANGE);
+	return ennemyAfterMoving.distance2(state.m_player);
+}
+
 // Return ID of the closest ennemy
 int closestEnnemy(const State& state) {
 	int maxDist = std::numeric_limits<int>::max();
-	int ID(0);
+	int ID(-1);
 	for (auto iterator = state.m_ennemies.begin(); iterator != state.m_ennemies.end(); iterator++) {
 		if (iterator->m_life > 0) {
-			int distanceEnnemi = iterator->distance2(state.m_player);
-			if (distanceEnnemi < maxDist) {
-				maxDist = distanceEnnemi;
+			int distanceToEnnemy = distance2AfterMovingEnnemy(state, iterator - state.m_ennemies.begin());
+
+			if (distanceToEnnemy < maxDist && distanceToEnnemy > ENNEMY_CATCH_RANGE2) { // (2000 - 1000)^2
+				maxDist = distanceToEnnemy;
 				ID = iterator - state.m_ennemies.begin();
 			}
 		}
@@ -332,32 +362,49 @@ int closestEnnemy(const State& state) {
 	return ID;
 }
 
-void killEnemy(State& state, const int& IdTarget, vector<Move>& moves) throw() {
+void killEnemy(State& state, const int& IdTarget, vector<Move>& moves) {
 	if (state.m_ennemies[IdTarget].m_life <= 0) {
 		return;
 	}
 	State oldState = state;
 	Move nextMove;
 	try {
-		nextMove.X = state.m_ennemies[IdTarget].X;
-		nextMove.Y = state.m_ennemies[IdTarget].Y;
+		Point ennemyAfterMoving = state.m_ennemies[IdTarget];
+		ennemyAfterMoving.moveWithinRange(state.m_datas[state.m_ennemies[IdTarget].m_dataTarget], ENNEMY_MOVE_MAX_RANGE);
+		nextMove.X = ennemyAfterMoving.X;
+		nextMove.Y = ennemyAfterMoving.Y;
 		nextMove.m_move = MOVES::MOVE;
 		nextMove.m_target = 1000;
-		playRound(state, nextMove);
-		moves.emplace_back(nextMove);
-		killEnemy(state, IdTarget, moves);
-	}
-	catch (playerDeadException e) {
-		state = oldState;
-		nextMove.m_move = MOVES::SHOOT;
-		nextMove.m_target = IdTarget;
+		if (state.m_ennemies[IdTarget].m_life < (125000.0) / pow(state.m_player.distance(ennemyAfterMoving), 1.2)) {
+			throw playerDeadException();
+		}
 		playRound(state, nextMove);
 		moves.emplace_back(nextMove);
 		killEnemy(state, IdTarget, moves);
 	}
 	catch (wonGameException e1) {
+		throw;
 		return;
 	}
+	catch (playerDeadException e) {
+		state = oldState;
+		nextMove.m_move = MOVES::SHOOT;
+		nextMove.m_target = IdTarget;
+
+		try {
+			playRound(state, nextMove);
+		}
+		catch (playerDeadException e) {
+			throw ;
+		}
+		catch (wonGameException e1) {
+			throw ;
+		}
+
+		moves.emplace_back(nextMove);
+		killEnemy(state, IdTarget, moves);
+	}
+
 }
 
 int numberOfDataLeft(const State& state) {
@@ -391,44 +438,60 @@ int fitnessState(const State& state, const int& victory, const int& initTurnNumb
 			+ 10 * state.m_ennemies.size();
 	}
 	else if (victory == -1) {
-		return 0;
+		return -1;
 	}
 	else if (victory == 0) {
 		int numberofDataLeft = numberOfDataLeft(state);
 		int numberofEnemyKilled = numberOfEnemyKilled(state);
 		return numberofDataLeft
 			* 3
-			* max(0, (state.m_numberOfInitialLife / numberofEnemyKilled) - 3 * state.m_numberOfShotFired)
+			* max(0.0, (state.m_numberOfInitialLife / (numberofEnemyKilled + 0.01)) - 3 * state.m_numberOfShotFired)
 			+ 100 * numberofDataLeft
 			+ 10 * numberofEnemyKilled;
 	}
 }
 
-void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMoves, const int& previousBestFitness) {
-	bestMoves.erase(bestMoves.begin());
-
+void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMoves, int& previousBestFitness) {
+	if (bestMoves.empty() == false) {
+		bestMoves.erase(bestMoves.begin());
+	}
 	time.reset();
 	int bestFitness = previousBestFitness;
-
-	while (time.stop() || true) {
+	int numberofGeneration = 0;
+	while (time.stop()) {
+		++numberofGeneration;
 		vector<Move> newMoves;
 		State stateCopy = state;
 		int initTurnNumber = stateCopy.m_turnNumber;
-		bool hasBeenAbleToMove = movingPlayerRandomly(stateCopy, newMoves);
+		bool hasBeenAbleToMove = false;
 		int fitnessNewMoves;
+		try {
+			hasBeenAbleToMove = movingPlayerRandomly(stateCopy, newMoves);
+		}
+		catch (wonGameException e) {
+			fitnessNewMoves = fitnessState(state, 1, initTurnNumber);
+		}
+
 		while (hasBeenAbleToMove) {
 			try {
-				if (rand() & 3 > 0) killEnemy(stateCopy, closestEnnemy(state), newMoves);
-				else {
-					fitnessState(stateCopy, 0, initTurnNumber);
+				int IDClosestEnnemy = closestEnnemy(state);
+				if (IDClosestEnnemy == -1) {
+					break;
 				}
+				killEnemy(stateCopy, IDClosestEnnemy, newMoves);
+				//else {
+					//fitnessNewMoves = fitnessState(stateCopy, 0, initTurnNumber);
+					//break;
+				//}
 			}
 			catch (playerDeadException e) {
 				// It means that we can't kill the ennemy before get killed
+				cerr << "Dead ";
 				fitnessNewMoves = fitnessState(stateCopy, -1, initTurnNumber);
 				break;
 			}
 			catch (wonGameException e1) {
+				cerr << "Won ";
 				fitnessNewMoves = fitnessState(stateCopy, 1, initTurnNumber);
 				break;
 			}
@@ -439,6 +502,9 @@ void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMov
 			bestMoves = newMoves;
 		}
 	}
+
+	previousBestFitness = bestFitness;
+	cerr << "Generation number " << numberofGeneration << endl;
 }
 
 void outputNextMove(const Move& move) {
@@ -457,11 +523,17 @@ void outputNextMove(const Move& move) {
 }
 
 
+
 int main()
 {
+	Timer time;
 	State state;
 	state.m_turnNumber = 0;
+	state.m_numberOfInitialLife = 0;
 	state.m_numberOfShotFired = 0;
+
+	vector<Move> bestmove;
+	int previousBestFitness = -1;
 	// game loop
 	while (1) {
 		++state.m_turnNumber;
@@ -502,10 +574,21 @@ int main()
 			ennemi.Y = enemyY;
 			findNewTarget(state, ennemi);
 
-			if (state.m_turnNumber == 0) {
+			if (state.m_turnNumber == 1) {
 				state.m_numberOfInitialLife += enemyLife;
 			}
 		}
 
+		geneticAlgorithmTurn(time, state, bestmove, previousBestFitness);
+		outputNextMove(bestmove[0]);
+		for (const Move& move : bestmove) {
+			if (move.m_move == MOVES::MOVE) {
+				cerr << "Moving to " << move.X << " " << move.Y << endl;
+			}
+			else {
+				cerr << "Shooting at " << move.m_target << endl;
+			}
+		}
+		cerr << "Fitness " << previousBestFitness << endl;
 	}
 }

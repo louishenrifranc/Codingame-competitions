@@ -100,7 +100,7 @@ Move dumbAI(const State& state) {
 
 
 
-void testMovingPlayer() {
+void testSimpleGeneticFunction() {
 	State state;
 
 	state.m_player = Point(10000, 4000);
@@ -116,5 +116,18 @@ void testMovingPlayer() {
 	geneticAlgorithmTurn(time, state, vector<Genome>());
 
 
+	8000 4500
+	4
+	0 3000 1500
+	1 15000 2000
+	2 13000 7000
+	3 13000 7000
+	3
+	0 1500 2000 100
+	1 9000 1000 10
+	2 3000 7000 100
+
+
+	// if has been catched, check  if not dead
 }
 */
