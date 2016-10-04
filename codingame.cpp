@@ -23,6 +23,25 @@ enum MOVES {
 	SHOOT = 1 << 2
 };
 
+namespace GameParameters {
+	const auto ENNEMY_KILL_RANGE = 2000;
+	const auto ENNEMY_KILL_RANGE2 = ENNEMY_KILL_RANGE*ENNEMY_KILL_RANGE;
+
+	const auto PLAYER_MOVE_MAX_RANGE = 1000;
+	const auto PLAYER_MOVE_MAX_RANGE2 = PLAYER_MOVE_MAX_RANGE*PLAYER_MOVE_MAX_RANGE;
+
+	const auto ENNEMY_MOVE_MAX_RANGE = 500;
+	const auto ENNEMY_MOVE_MAX_RANGE2 = ENNEMY_MOVE_MAX_RANGE*ENNEMY_MOVE_MAX_RANGE;
+
+	const auto ENNEMY_CATCH_RANGE = 500;
+	const auto ENNEMY_CATCH_RANGE2 = ENNEMY_MOVE_MAX_RANGE2;
+
+	const auto LIMIT_MIN_X = 0;
+	const auto LIMIT_MAX_X = 16000;
+	const auto LIMIT_MIN_Y = 0;
+	const auto LIMIT_MAX_Y = 9000;
+};
+using namespace GameParameters;
 
 class Timer {
 public:
@@ -45,7 +64,7 @@ struct Point {
 	Point() : X(-1), Y(-1) { };
 	bool inMap() const
 	{
-		if (X < 0 || Y < 0 || X > 16001 || Y > 9001)
+		if (X < LIMIT_MIN_X || Y < LIMIT_MIN_Y || X > LIMIT_MIN_X + 1 || Y > LIMIT_MAX_Y + 1)
 			return false;
 		return true;
 	}
@@ -70,17 +89,6 @@ struct Point {
 		return *this;
 	}
 
-
-	void rotate(const Point& p, double theta = 3.14159)
-	{
-		X -= p.X;
-		Y -= p.Y;
-		X = p.X + X * cos(theta) - Y * sin(theta);
-		Y = p.Y + X * sin(theta) + Y * cos(theta);
-	}
-
-
-
 	void moveWithinRange(const Point& point, const int& moveRange = 1000) {
 		const int dist = distance(point);
 		double newX = X, newY = Y;
@@ -103,6 +111,7 @@ struct Point {
 		Y = newY;
 	}
 
+	//! Round the point to be outside of the range
 	static void roundTo(double& point, const int& destination) {
 		if (destination < point) {
 			point = floor(point);
@@ -132,13 +141,11 @@ struct Point {
 	}
 	void normalizeWithinRange()
 	{
-		if (X < 0) X = 0;
-		if (X >= 16000) X = 16000;
-		if (Y < 0) Y = 0;
-		if (Y > 9001) Y = 9000;
+		if (X < LIMIT_MIN_X) X = LIMIT_MIN_X;
+		else if (X >= LIMIT_MAX_X + 1) X = LIMIT_MAX_X;
+		if (Y < LIMIT_MIN_Y) Y = LIMIT_MIN_Y;
+		else if (Y > LIMIT_MAX_Y + 1) Y = LIMIT_MAX_Y;
 	}
-
-
 	int X, Y;
 };
 
@@ -202,7 +209,7 @@ void update(State& state, const int& ID, const int& X, const int& Y, const int& 
 
 
 
-
+//! Correct function verified
 void play(State& state, const Move& move) {
 	if (move.m_move == MOVES::MOVE) {
 		state.m_player.moveWithinRange(move, move.m_target);
@@ -217,6 +224,8 @@ void play(State& state, const Move& move) {
 	}
 }
 
+
+//! Correct function verified
 void findNewTarget(const State& state, Ennemy& ennemi) {
 	long int minDist = std::numeric_limits<long int>::max();
 
@@ -238,7 +247,7 @@ void playRound(State& state, const Move& move) throw() {
 
 	//! 1. Move the ennemies
 	for (auto& ennemi : state.m_ennemies) {
-		ennemi.moveWithinRange(state.m_datas[ennemi.m_dataTarget], 500);
+		ennemi.moveWithinRange(state.m_datas[ennemi.m_dataTarget], ENNEMY_MOVE_MAX_RANGE);
 	}
 
 	//! 2. Move the player
@@ -251,7 +260,7 @@ void playRound(State& state, const Move& move) throw() {
 	for (const auto& ennemi : state.m_ennemies) {
 		if (ennemi.m_life > 0) {
 			stillOnePlayerAlive = true;
-			if (ennemi.distance2(state.m_player) < 250000) {
+			if (ennemi.distance2(state.m_player) < ENNEMY_KILL_RANGE2) {
 				throw playerDeadException();
 			}
 		}
@@ -264,7 +273,7 @@ void playRound(State& state, const Move& move) throw() {
 
 	//! 5. Check if data has been catched
 	for (auto& ennemi : state.m_ennemies) {
-		if (ennemi.distance2(state.m_datas[ennemi.m_dataTarget]) < 250000) {
+		if (ennemi.distance2(state.m_datas[ennemi.m_dataTarget]) < ENNEMY_CATCH_RANGE2) {
 			state.m_datas[ennemi.m_dataTarget].catched = true;
 			findNewTarget(state, ennemi);
 		}
@@ -273,28 +282,32 @@ void playRound(State& state, const Move& move) throw() {
 }
 
 
-
-void playRound(State& state, float& thetaDirection) throw() {
+//! Correct function verified
+void playRound(State& state, float& thetaDirection, vector<Move>& moves) throw() {
 	thetaDirection *= 3.14159 / 180;
 	int doubleDistance = rand() & 1;
-	int distance = 1000 / (doubleDistance + 1);
+	int distance = PLAYER_MOVE_MAX_RANGE / (doubleDistance + 1);
 
 	Move nextMove;
 	nextMove.m_move = MOVES::MOVE;
 	nextMove.m_target = distance;
 	nextMove.X = state.m_player.X + cos(thetaDirection) * distance;
 	nextMove.Y = state.m_player.Y + sin(thetaDirection) * distance;
+
+	// Add the move to the vector of moves
+	moves.emplace_back(nextMove);
+
 	playRound(state, nextMove);
 }
 
 
 
-
-bool movingPlayerRandomly(State& state) {
+//! Correct function verified ? the rand is oke I guess
+bool movingPlayerRandomly(State& state, vector<Move>& moves) {
 	while ((float)(rand()) / (float)(RAND_MAX) > 0.3) {
 		float randAngle = rand() & 255 + rand() & 127;
 		try {
-			playRound(state, randAngle);
+			playRound(state, randAngle, moves);
 		}
 		catch (exception e) {
 			return false;
@@ -307,7 +320,7 @@ bool movingPlayerRandomly(State& state) {
 int closestEnnemy(const State& state) {
 	int maxDist = std::numeric_limits<int>::max();
 	int ID(0);
-	for (auto iterator = state.m_ennemies.begin(); iterator != state.m_ennemies.end();iterator++){
+	for (auto iterator = state.m_ennemies.begin(); iterator != state.m_ennemies.end(); iterator++) {
 		if (iterator->m_life > 0) {
 			int distanceEnnemi = iterator->distance2(state.m_player);
 			if (distanceEnnemi < maxDist) {
@@ -319,7 +332,7 @@ int closestEnnemy(const State& state) {
 	return ID;
 }
 
-void killEnemy(State& state, const int& IdTarget) throw() {
+void killEnemy(State& state, const int& IdTarget, vector<Move>& moves) throw() {
 	if (state.m_ennemies[IdTarget].m_life <= 0) {
 		return;
 	}
@@ -331,53 +344,117 @@ void killEnemy(State& state, const int& IdTarget) throw() {
 		nextMove.m_move = MOVES::MOVE;
 		nextMove.m_target = 1000;
 		playRound(state, nextMove);
-		killEnemy(state, IdTarget);
-	} catch(playerDeadException e) {
+		moves.emplace_back(nextMove);
+		killEnemy(state, IdTarget, moves);
+	}
+	catch (playerDeadException e) {
 		state = oldState;
 		nextMove.m_move = MOVES::SHOOT;
 		nextMove.m_target = IdTarget;
 		playRound(state, nextMove);
-		killEnemy(state, IdTarget);
-	} catch(wonGameException e1) {
+		moves.emplace_back(nextMove);
+		killEnemy(state, IdTarget, moves);
+	}
+	catch (wonGameException e1) {
 		return;
 	}
 }
 
-int fitnessState(const State& state, const int& victory,const int& initTurnNumber) {
+int numberOfDataLeft(const State& state) {
+	int numberofDataLeft = 0;
+	for (const auto& data : state.m_datas) {
+		if (data.catched == true) {
+			++numberofDataLeft;
+		}
+	}
+	return numberofDataLeft;
+}
+
+int numberOfEnemyKilled(const State& state) {
+	int numberofEnemyKilled = 0;
+	for (const auto& ennemi : state.m_ennemies) {
+		if (ennemi.m_life < 1) {
+			++numberofEnemyKilled;
+		}
+	}
+	return numberofEnemyKilled;
+}
+
+
+int fitnessState(const State& state, const int& victory, const int& initTurnNumber) {
 	if (victory == 1) {
-		return INT_MAX * pow(0.9, state.m_turnNumber - initTurnNumber);
-	} else if(victory == -1) {
+		int numberofDataLeft = numberOfDataLeft(state);
+		return numberofDataLeft
+			* 3
+			* max(0, state.m_numberOfInitialLife - 3 * state.m_numberOfShotFired)
+			+ 100 * numberofDataLeft
+			+ 10 * state.m_ennemies.size();
+	}
+	else if (victory == -1) {
 		return 0;
-	} else if(victory == 0) {
-		
+	}
+	else if (victory == 0) {
+		int numberofDataLeft = numberOfDataLeft(state);
+		int numberofEnemyKilled = numberOfEnemyKilled(state);
+		return numberofDataLeft
+			* 3
+			* max(0, (state.m_numberOfInitialLife / numberofEnemyKilled) - 3 * state.m_numberOfShotFired)
+			+ 100 * numberofDataLeft
+			+ 10 * numberofEnemyKilled;
 	}
 }
 
-void geneticAlgorithmTurn(Timer& time, const State& state) {
+void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMoves, const int& previousBestFitness) {
+	bestMoves.erase(bestMoves.begin());
+
+	time.reset();
+	int bestFitness = previousBestFitness;
+
 	while (time.stop() || true) {
-		
+		vector<Move> newMoves;
 		State stateCopy = state;
 		int initTurnNumber = stateCopy.m_turnNumber;
-		bool hasBeenAbleToMove = movingPlayerRandomly(stateCopy);
-
-		while(hasBeenAbleToMove) {	
+		bool hasBeenAbleToMove = movingPlayerRandomly(stateCopy, newMoves);
+		int fitnessNewMoves;
+		while (hasBeenAbleToMove) {
 			try {
-				if(rand() & 3 > 0) killEnemy(stateCopy, closestEnnemy(state));
+				if (rand() & 3 > 0) killEnemy(stateCopy, closestEnnemy(state), newMoves);
 				else {
-					fitnessState(stateCopy, 0,initTurnNumber);
+					fitnessState(stateCopy, 0, initTurnNumber);
 				}
 			}
 			catch (playerDeadException e) {
 				// It means that we can't kill the ennemy before get killed
-				fitnessState(stateCopy, -1, initTurnNumber);
-			} catch(wonGameException e1) {
-				fitnessState(stateCopy, 1, initTurnNumber);
+				fitnessNewMoves = fitnessState(stateCopy, -1, initTurnNumber);
+				break;
 			}
+			catch (wonGameException e1) {
+				fitnessNewMoves = fitnessState(stateCopy, 1, initTurnNumber);
+				break;
+			}
+		}
+
+		if (fitnessNewMoves > bestFitness) {
+			bestFitness = fitnessNewMoves;
+			bestMoves = newMoves;
 		}
 	}
 }
 
+void outputNextMove(const Move& move) {
+	if (true /* check corectness output, and output simpleIA */) {
+		if (move.m_move == MOVES::MOVE) {
+			cout << "MOVE " << move.X << " " << move.Y << endl;
+		}
+		else {
+			cout << "SHOOT" << move.m_target << endl;
+		}
+	}
+	else {
 
+	}
+
+}
 
 
 int main()
@@ -420,7 +497,7 @@ int main()
 			int enemyLife;
 			cin >> enemyId >> enemyX >> enemyY >> enemyLife; cin.ignore();
 			update(state, enemyId, enemyX, enemyY, enemyLife);
-			Ennemy ennemi; 
+			Ennemy ennemi;
 			ennemi.X = enemyX;
 			ennemi.Y = enemyY;
 			findNewTarget(state, ennemi);
@@ -430,6 +507,5 @@ int main()
 			}
 		}
 
-		cout << "MOVE 8000 4500" << endl; // MOVE x y or SHOOT id
 	}
 }
