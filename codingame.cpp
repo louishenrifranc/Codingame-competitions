@@ -172,6 +172,9 @@ struct State {
 	Point m_player;
 	vector<Ennemy> m_ennemies;
 	vector<Data> m_datas;
+	int m_turnNumber;
+	int m_numberOfShotFired;
+	int m_numberOfInitialLife;
 };
 
 
@@ -210,6 +213,7 @@ void play(State& state, const Move& move) {
 		if (ennemi.m_life < 0) {
 			ennemi.m_life = 0;
 		}
+		++state.m_numberOfShotFired;
 	}
 }
 
@@ -265,6 +269,7 @@ void playRound(State& state, const Move& move) throw() {
 			findNewTarget(state, ennemi);
 		}
 	}
+	++state.m_turnNumber;
 }
 
 
@@ -286,7 +291,6 @@ void playRound(State& state, float& thetaDirection) throw() {
 
 
 bool movingPlayerRandomly(State& state) {
-	cout << state.m_player.X << "," << state.m_player.Y << endl;
 	while ((float)(rand()) / (float)(RAND_MAX) > 0.3) {
 		float randAngle = rand() & 255 + rand() & 127;
 		try {
@@ -304,10 +308,12 @@ int closestEnnemy(const State& state) {
 	int maxDist = std::numeric_limits<int>::max();
 	int ID(0);
 	for (auto iterator = state.m_ennemies.begin(); iterator != state.m_ennemies.end();iterator++){
-		int distanceEnnemi = iterator->distance2(state.m_player);
-		if(distanceEnnemi < maxDist) {
-			maxDist = distanceEnnemi;
-			ID = iterator - state.m_ennemies.begin();
+		if (iterator->m_life > 0) {
+			int distanceEnnemi = iterator->distance2(state.m_player);
+			if (distanceEnnemi < maxDist) {
+				maxDist = distanceEnnemi;
+				ID = iterator - state.m_ennemies.begin();
+			}
 		}
 	}
 	return ID;
@@ -333,24 +339,41 @@ void killEnemy(State& state, const int& IdTarget) throw() {
 		playRound(state, nextMove);
 		killEnemy(state, IdTarget);
 	} catch(wonGameException e1) {
-	
+		return;
+	}
+}
+
+int fitnessState(const State& state, const int& victory,const int& initTurnNumber) {
+	if (victory == 1) {
+		return INT_MAX * pow(0.9, state.m_turnNumber - initTurnNumber);
+	} else if(victory == -1) {
+		return 0;
+	} else if(victory == 0) {
+		
 	}
 }
 
 void geneticAlgorithmTurn(Timer& time, const State& state) {
 	while (time.stop() || true) {
-		State stateCopy = state;
 		
-		/*
-		 * First move for some round
-		 */
+		State stateCopy = state;
+		int initTurnNumber = stateCopy.m_turnNumber;
 		bool hasBeenAbleToMove = movingPlayerRandomly(stateCopy);
 
-		if (hasBeenAbleToMove) {	
+		while(hasBeenAbleToMove) {	
 			try {
-				killEnemy(stateCopy, closestEnnemy(state));
-			} catch()
+				if(rand() & 3 > 0) killEnemy(stateCopy, closestEnnemy(state));
+				else {
+					fitnessState(stateCopy, 0,initTurnNumber);
+				}
 			}
+			catch (playerDeadException e) {
+				// It means that we can't kill the ennemy before get killed
+				fitnessState(stateCopy, -1, initTurnNumber);
+			} catch(wonGameException e1) {
+				fitnessState(stateCopy, 1, initTurnNumber);
+			}
+		}
 	}
 }
 
@@ -360,8 +383,11 @@ void geneticAlgorithmTurn(Timer& time, const State& state) {
 int main()
 {
 	State state;
+	state.m_turnNumber = 0;
+	state.m_numberOfShotFired = 0;
 	// game loop
 	while (1) {
+		++state.m_turnNumber;
 		int x;
 		int y;
 		cin >> x >> y; cin.ignore();
@@ -398,6 +424,10 @@ int main()
 			ennemi.X = enemyX;
 			ennemi.Y = enemyY;
 			findNewTarget(state, ennemi);
+
+			if (state.m_turnNumber == 0) {
+				state.m_numberOfInitialLife += enemyLife;
+			}
 		}
 
 		cout << "MOVE 8000 4500" << endl; // MOVE x y or SHOOT id
