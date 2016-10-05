@@ -449,51 +449,27 @@ int closestEnnemy(const State& state) {
 	return ID;
 }
 
-int killEnemy(State& state, const int& IdTarget, vector<Move>& moves) {
-	if (state.m_ennemies[IdTarget].m_life <= 0) {
-		return 0;
-	}
-	State oldState = state;
-	Move nextMove;
-	{
-		Point ennemyAfterMoving = state.m_ennemies[IdTarget];
-		ennemyAfterMoving.moveWithinRange(state.m_datas[state.m_ennemies[IdTarget].m_dataTarget], ENNEMY_MOVE_MAX_RANGE);
-		nextMove.X = ennemyAfterMoving.X;
-		nextMove.Y = ennemyAfterMoving.Y;
-		nextMove.m_move = MOVES::MOVE;
-		nextMove.m_target = 1000;
-		if (state.m_ennemies[IdTarget].m_life < (125000.0) / FastMath::fastpow(state.m_player.distance(ennemyAfterMoving), 1.2)) {
-			goto finishHim;
-		}
-		int ID = playRound(state, nextMove);
-		if (ID == 2) {
-			cerr << "Should not say zero" << endl;
-			return 2;
-		}
-		else if (ID == 1) {
-			goto finishHim;
-		}
-		moves.emplace_back(nextMove);
-		return killEnemy(state, IdTarget, moves);
-	}
-finishHim:
-	{
-		state = oldState;
-		nextMove.m_move = MOVES::SHOOT;
-		nextMove.m_target = IdTarget;
-		int ID1 = playRound(state, nextMove);
-		if (ID1 == 1) {
+
+
+int shootRandomEnnemy(State& state,vector<Move>& moves) {
+	Move move; move.m_move = MOVES::SHOOT;
+	if (rand() & 3 > 1) move.m_target = closestEnnemy(state);
+	else {
+		int ID = 0, compteur = 0;
+		do {
+			ID = rand() % state.m_ennemies.size();
+			++compteur;
+		} while (state.m_ennemies[ID].m_life == 0 && compteur < 20);
+		if (compteur == 20) {
 			return 1;
 		}
-		else {
-			moves.emplace_back(nextMove);
-			if (ID1 == 2) {
-				return 2;
-			}
-		}
-		return killEnemy(state, IdTarget, moves);
+		move.m_target = ID;
 	}
+	assert(move.m_target != -1);
+	moves.emplace_back(move);
+	return playRound(state,move);
 }
+
 
 int numberOfDataLeft(const State& state) {
 	int numberofDataLeft = 0;
@@ -565,44 +541,33 @@ void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMov
 		int initTurnNumber = stateCopy.m_turnNumber;
 		int ID;
 		int fitnessNewMoves = 1;
-		int distanceToClosestEnemy = state.m_ennemies[closestEnnemy(state)].distance2(state.m_player);
+		int distanceToClosestEnemy = stateCopy.m_ennemies[closestEnnemy(stateCopy)].distance2(stateCopy.m_player);
 		double amplitudeMove = 0.3;
 		if (distanceToClosestEnemy < ENNEMY_KILL_RANGE2 * 2) {
-			amplitudeMove = 0.9;
+			amplitudeMove = 6;
 		}
 
-		ID = movingPlayerRandomly(stateCopy, newMoves, amplitudeMove);
-		if (ID == 2) {
-			fitnessNewMoves *= 20 * fitnessState(state, 1, initTurnNumber);
-		}
-		int ID1;
-
-		while (ID == 0) {
-
-			int IDClosestEnnemy = closestEnnemy(stateCopy);
-			if (IDClosestEnnemy == -1) {
-				cerr << " Should never been here";
-				break;
-			}
-
-			if (rand() & 3 >= 1) {
-				ID1 = killEnemy(stateCopy, IDClosestEnnemy, newMoves);
-
-			}
+		while (true) {
+			int ID;
+			if(rand() & 1) ID = shootRandomEnnemy (stateCopy, newMoves);
 			else {
+				ID = movingPlayerRandomly(stateCopy, newMoves, amplitudeMove);
+			}
+			if (rand() & 4 < 1) {
 				fitnessNewMoves *= fitnessState(stateCopy, 0, initTurnNumber);
 				break;
+
 			}
-			if (ID1 == 2) {
+			if (ID == 2) {
 				fitnessNewMoves *= fitnessState(stateCopy, 1, initTurnNumber);
 				break;
 			}
-			else if (ID1 == 1) {
+			else if (ID == 1) {
 				fitnessNewMoves *= fitnessState(stateCopy, -1, initTurnNumber);
-				break;
+				break ;
 			}
-			else if (ID1 == 0) {
-				fitnessNewMoves *= FastMath::fastpow(0.7, state.m_turnNumber - initTurnNumber);
+			else if (ID == 0) {
+				fitnessNewMoves *= FastMath::fastpow(0.7, stateCopy.m_turnNumber - initTurnNumber);
 			}
 		}
 
