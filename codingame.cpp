@@ -7,21 +7,75 @@
 #include <cassert>
 #include <exception>
 #include <chrono>
+
+#pragma GCC optimize "O3,omit-frame-pointer,inline"
 using namespace std;
-struct playerDeadException : public exception {
-	virtual const char* what() const throw() {
-		return "";
-	}
-};
-struct wonGameException : public exception {
-	virtual const char* what() const throw() {
-		return "";
-	}
-};
+
 enum MOVES {
 	MOVE = 1 << 1,
 	SHOOT = 1 << 2
 };
+
+namespace FastMath {
+
+	#define cast_uint32_t (uint32_t)
+	static inline float
+		fastlog2(float x)
+	{
+		union { float f; uint32_t i; } vx = { x };
+		union { uint32_t i; float f; } mx = { (vx.i & 0x007FFFFF) | 0x3f000000 };
+		float y = vx.i;
+		y *= 1.1920928955078125e-7f;
+
+		return y - 124.22551499f
+			- 1.498030302f * mx.f
+			- 1.72587999f / (0.3520887068f + mx.f);
+	}
+
+
+	static inline float
+		fastpow2(float p)
+	{
+		float offset = (p < 0) ? 1.0f : 0.0f;
+		float clipp = (p < -126) ? -126.0f : p;
+		int w = clipp;
+		float z = clipp - w + offset;
+		union { uint32_t i; float f; } v = { cast_uint32_t((1 << 23) * (clipp + 121.2740575f + 27.7280233f / (4.84252568f - z) - 1.49012907f * z)) };
+
+		return v.f;
+	}
+
+	static inline float
+		fasterpow2(float p)
+	{
+		float clipp = (p < -126) ? -126.0f : p;
+		union { uint32_t i; float f; } v = { cast_uint32_t((1 << 23) * (clipp + 126.94269504f)) };
+		return v.f;
+	}
+
+	static inline float
+		fasterlog2(float x)
+	{
+		union { float f; uint32_t i; } vx = { x };
+		float y = vx.i;
+		y *= 1.1920928955078125e-7f;
+		return y - 126.94269504f;
+	}
+
+	static inline float fastpow(float x,float p)
+	{
+		return fastpow2(p * fastlog2(x));
+	}
+
+	static inline float sqrt(float x)
+	{
+		unsigned int i = *(unsigned int*)&x;
+		i += 127 << 23;
+		i >>= 1;
+		return *(float*)&i;
+	}
+
+}
 
 namespace GameParameters {
 	const auto ENNEMY_KILL_RANGE = 2000;
@@ -106,9 +160,13 @@ struct Point {
 		roundTo(newX, point.X);
 		roundTo(newY, point.Y);
 		//! Normalize the point
-		normalizeWithinRange();
-		X = newX;
-		Y = newY;
+		Point newPoint = Point(newX, newY);
+		newPoint.normalizeWithinRange();
+		X = newPoint.X;
+		Y = newPoint.Y;
+		if (X < 0 || Y < 0) {
+			cerr << "Negative value" << X << " " << Y;
+		}
 	}
 
 	//! Round the point to be outside of the range
@@ -127,24 +185,37 @@ struct Point {
 	}
 
 	inline int distance(const Point& rhs) const {
-		return sqrt(distance2(rhs));
+		return FastMath::sqrt(distance2(rhs));
 	}
 
-	int numberSteps(const Point* p, int sizeStep) const
-	{
-		int res = (int)(sqrt(distance2(*p)) - 1760) / sizeStep;
-		if (res < 0)
-			res = 0;
-		if (res > 0)
-			res++;
-		return res;
-	}
+
 	void normalizeWithinRange()
 	{
 		if (X < LIMIT_MIN_X) X = LIMIT_MIN_X;
-		else if (X >= LIMIT_MAX_X + 1) X = LIMIT_MAX_X;
+		else if (X >= LIMIT_MAX_X) X = LIMIT_MAX_X;
 		if (Y < LIMIT_MIN_Y) Y = LIMIT_MIN_Y;
-		else if (Y > LIMIT_MAX_Y + 1) Y = LIMIT_MAX_Y;
+		else if (Y >= LIMIT_MAX_Y) Y = LIMIT_MAX_Y;
+	}
+
+	template<typename T>
+	static Point barycentre(const vector<T>& points) {
+		Point centre(0, 0);
+		for (const auto& point : points) {
+			centre += point;
+		}
+		if (points.size() > 0) {
+			centre /= points.size();
+		}
+		return centre;
+	}
+
+	template<typename T>
+	static float angleDifferenceinDegree(const T& initPoint, const T& targetPoint) {
+		float angle = (180.0 * atan2(targetPoint.Y - initPoint.Y, targetPoint.X - initPoint.X)) / 3.14159;
+		if (angle < 0) {
+			angle += 360.0;
+		}
+		return angle;
 	}
 	int X, Y;
 };
@@ -216,7 +287,7 @@ void play(State& state, const Move& move) {
 	}
 	else {
 		Ennemy& ennemi = state.m_ennemies[move.m_target];
-		ennemi.m_life -= (125000.0) / pow(state.m_player.distance(ennemi), 1.2);
+		ennemi.m_life -= (125000.0) / FastMath::fastpow(state.m_player.distance(ennemi), 1.2);
 		if (ennemi.m_life < 0) {
 			ennemi.m_life = 0;
 		}
@@ -242,7 +313,10 @@ void findNewTarget(const State& state, Ennemy& ennemi) {
 
 }
 
-
+//! 1 for player death, who no more data
+//! 0 if nothing has happened
+//! 2 if player won
+//!
 int playRound(State& state, const Move& move) {
 
 	//! 1. Move the ennemies
@@ -319,22 +393,33 @@ int playRound(State& state, float& thetaDirection, vector<Move>& moves) {
 	nextMove.m_target = distance;
 	nextMove.X = state.m_player.X + cos(thetaDirection) * distance;
 	nextMove.Y = state.m_player.Y + sin(thetaDirection) * distance;
-
+	nextMove.normalizeWithinRange();
 	// Add the move to the vector of moves
-	moves.emplace_back(nextMove);
 
+	moves.emplace_back(nextMove);
 
 	return playRound(state, nextMove);
 }
 
 
 
-//! Correct function verified ? the rand is oke I guess
-int movingPlayerRandomly(State& state, vector<Move>& moves) {
+//! Correct function 
+int movingPlayerRandomly(State& state, vector<Move>& moves, const float amplitude = 0.3) {
 	int ID(0);
-	while ((float)(rand()) / (float)(RAND_MAX) > 0.3) {
-		float randAngle = rand() % 360;
-		ID = playRound(state, randAngle, moves);
+	while (rand() & 7 > 4) {
+		float randAngle;
+		int boolean = rand() & 7;
+		if (boolean < 1) {
+			randAngle = rand() % 360;//rand() % 360;
+		}
+		else if(boolean > 5){
+			randAngle = Point::angleDifferenceinDegree(state.m_player, Point::barycentre(state.m_ennemies));
+		}
+		else {
+			randAngle = Point::angleDifferenceinDegree(state.m_player, Point::barycentre(state.m_datas));
+		}
+
+		ID	= playRound(state, randAngle, moves);
 	}
 	return ID;
 }
@@ -377,7 +462,7 @@ int killEnemy(State& state, const int& IdTarget, vector<Move>& moves) {
 		nextMove.Y = ennemyAfterMoving.Y;
 		nextMove.m_move = MOVES::MOVE;
 		nextMove.m_target = 1000;
-		if (state.m_ennemies[IdTarget].m_life < (125000.0) / pow(state.m_player.distance(ennemyAfterMoving), 1.2)) {
+		if (state.m_ennemies[IdTarget].m_life < (125000.0) / FastMath::fastpow(state.m_player.distance(ennemyAfterMoving), 1.2)) {
 			goto finishHim;
 		}
 		int ID = playRound(state, nextMove);
@@ -393,20 +478,20 @@ int killEnemy(State& state, const int& IdTarget, vector<Move>& moves) {
 	}
 finishHim:
 	{
-	state = oldState;
-	nextMove.m_move = MOVES::SHOOT;
-	nextMove.m_target = IdTarget;
-	int ID1 = playRound(state, nextMove);
-	if (ID1 == 1) {
-		return 1;
-	}
-	else {
-		moves.emplace_back(nextMove);
-		if (ID1 == 2) {
-			return 2;
+		state = oldState;
+		nextMove.m_move = MOVES::SHOOT;
+		nextMove.m_target = IdTarget;
+		int ID1 = playRound(state, nextMove);
+		if (ID1 == 1) {
+			return 1;
 		}
-	}
-	return killEnemy(state, IdTarget, moves);
+		else {
+			moves.emplace_back(nextMove);
+			if (ID1 == 2) {
+				return 2;
+			}
+		}
+		return killEnemy(state, IdTarget, moves);
 	}
 }
 
@@ -460,7 +545,6 @@ void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMov
 	}
 	time.reset();
 	int bestFitness = previousBestFitness;
-
 	int noKillAction = true;
 	for (const auto& move : bestMoves) {
 		if (move.m_move == MOVES::SHOOT) {
@@ -470,6 +554,7 @@ void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMov
 	// Just moving so don't care
 	if (noKillAction == true) {
 		bestFitness = -1;
+		//bestMoves = dumbIA(state);
 	}
 
 	int numberofGeneration = 0;
@@ -480,8 +565,13 @@ void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMov
 		int initTurnNumber = stateCopy.m_turnNumber;
 		int ID;
 		int fitnessNewMoves = 1;
+		int distanceToClosestEnemy = state.m_ennemies[closestEnnemy(state)].distance2(state.m_player);
+		double amplitudeMove = 0.3;
+		if (distanceToClosestEnemy < ENNEMY_KILL_RANGE2 * 2) {
+			amplitudeMove = 0.9;
+		}
 
-		ID = movingPlayerRandomly(stateCopy, newMoves);
+		ID = movingPlayerRandomly(stateCopy, newMoves, amplitudeMove);
 		if (ID == 2) {
 			fitnessNewMoves *= 20 * fitnessState(state, 1, initTurnNumber);
 		}
@@ -494,11 +584,12 @@ void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMov
 				cerr << " Should never been here";
 				break;
 			}
-			
+
 			if (rand() & 3 >= 1) {
 				ID1 = killEnemy(stateCopy, IDClosestEnnemy, newMoves);
-				
-			} else {
+
+			}
+			else {
 				fitnessNewMoves *= fitnessState(stateCopy, 0, initTurnNumber);
 				break;
 			}
@@ -509,8 +600,9 @@ void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMov
 			else if (ID1 == 1) {
 				fitnessNewMoves *= fitnessState(stateCopy, -1, initTurnNumber);
 				break;
-			} else if(ID1 == 0) {
-				fitnessNewMoves *= pow(0.7,state.m_turnNumber - initTurnNumber);
+			}
+			else if (ID1 == 0) {
+				fitnessNewMoves *= FastMath::fastpow(0.7, state.m_turnNumber - initTurnNumber);
 			}
 		}
 
@@ -524,7 +616,11 @@ void geneticAlgorithmTurn(Timer& time, const State& state, vector<Move>& bestMov
 	cerr << "Generation number " << numberofGeneration << endl;
 }
 
-void outputNextMove(const Move& move) {
+
+
+
+
+void outputNextMove(State& state, const Move& move) {
 	if (true /* check corectness output, and output simpleIA */) {
 		if (move.m_move == MOVES::MOVE) {
 			cout << "MOVE " << move.X << " " << move.Y << endl;
@@ -536,7 +632,7 @@ void outputNextMove(const Move& move) {
 	else {
 
 	}
-
+	playRound(state, move);
 }
 
 
@@ -597,7 +693,7 @@ int main()
 		}
 
 		geneticAlgorithmTurn(time, state, bestmove, previousBestFitness);
-		outputNextMove(bestmove[0]);
+		outputNextMove(state, bestmove[0]);
 		for (const Move& move : bestmove) {
 			if (move.m_move == MOVES::MOVE) {
 				cerr << "Moving to " << move.X << " " << move.Y << endl;
