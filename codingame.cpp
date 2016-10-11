@@ -193,22 +193,31 @@ struct Point {
 		return pair<float,float>(slope,intercept);
 	}
 	
-	Point reflectionPoint(const Point& a,const Point& b){
+	void reflectionPoint(const Point& a,const Point& b){
 	      auto equation1 = equation(a,b);
+	      if(equation1.first == 0) {
+	      	  float maxX = max(a.X,b.X);
+	      	  float dist = 2 * distance(Point((maxX - min(a.X,b.X)) / 2,a.Y));
+	      	  if(Y < a.Y) Y += dist;
+	      	  else Y -= dist;
+	          cout << X << " "<< Y;
+	          // Si la droite est parallele a l'axe des abscisses
+	    	  return;   
+	      }
 	      
 	      auto equation2 = pair<float,float>( -1.0 / equation1.first, 0);
 	      equation2.second = Y - equation2.first * X;
 	      
 	      Point centre;
-	      centre.X = (equation2.second - equation1.second / equation1.first - equation2.first);
-	      centre.Y = equation1.first * centre.X + equation1.second;
+	      float centreX = (equation2.second - equation1.second ) / (equation1.first - equation2.first);
+	      float centreY = equation1.first * centreX + equation1.second;
 	      
-	      int dX = X - centre.X;
-	      int dY = Y - centre.Y;
+	      float dX = X - centreX;
+	      float dY = Y - centreY;
 	      
-	      X += 2 * dX;
-	      Y += 2 * dY;
-	      cout <<  X << " " << Y;
+	      X -= 2 * dX;
+	      Y -= 2 * dY;
+	      cout << X << " " << Y;
 	}
 	
 	
