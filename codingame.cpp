@@ -168,7 +168,50 @@ struct Point {
 			cerr << "Negative value" << X << " " << Y;
 		}
 	}
+	// return false if going from a,b,c,a is counter clockwise 
+	// return true if going from a,b,c,a is  clockwise
+	bool static CCW(Point a, Point b, Point c) { 
+		return ((b.X-a.X)*(c.Y-a.Y) - (b.Y-a.Y)*(c.X-a.X) < 0 ?  true : false); 
+	}
 
+	//! The angle is always between 0 and 180 degrees
+	static float angleBetweenPoint(const Point& a,const Point& b,const Point& c){
+	   float normA = a.distance(b);
+	   float normB = b.distance(c);
+	   Point segmentA(a.X - b.X, a.Y - b.Y);
+	   Point segmentB(c.X - b.X, c.Y - b.Y);
+	   float dot_product = segmentA.X * segmentB.X + segmentA.Y * segmentB.Y;
+	   float angle = acos(dot_product / (normA * normB));
+	   
+	   int degree =  angle * 180.0 / 3.14159265359 ;
+	   return degree;	
+	}
+	
+	pair<float,float> equation(const Point& a,const Point& b) {
+		float slope = (float)(a.Y - b.Y)/(a.X - b.X);
+		float intercept = a.Y - slope * a.X; 
+		return pair<float,float>(slope,intercept);
+	}
+	
+	Point reflectionPoint(const Point& a,const Point& b){
+	      auto equation1 = equation(a,b);
+	      
+	      auto equation2 = pair<float,float>( -1.0 / equation1.first, 0);
+	      equation2.second = Y - equation2.first * X;
+	      
+	      Point centre;
+	      centre.X = (equation2.second - equation1.second / equation1.first - equation2.first);
+	      centre.Y = equation1.first * centre.X + equation1.second;
+	      
+	      int dX = X - centre.X;
+	      int dY = Y - centre.Y;
+	      
+	      X += 2 * dX;
+	      Y += 2 * dY;
+	      cout <<  X << " " << Y;
+	}
+	
+	
 	//! Round the point to be outside of the range
 	static void roundTo(double& point, const int& destination) {
 		if (destination < point) {
