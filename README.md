@@ -1,1 +1,1 @@
-# TheAccountant
+All CodinGame competitions
